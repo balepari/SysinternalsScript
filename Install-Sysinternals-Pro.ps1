@@ -87,9 +87,11 @@ if ($UseSMB) {
 } else {
 
     Write-Host "Recupero lista file via HTTP..."
-    $html  = Invoke-WebRequest -Uri $HTTPBase
+    # FIX: aggiunto -UseBasicParsing per evitare dipendenza da IE/prompt interattivo
+    $html  = Invoke-WebRequest -Uri $HTTPBase -UseBasicParsing
     $links = $html.Links | Where-Object { $_.href -like "*.exe" }
     $total = @($links).Count
+    Write-Host "File trovati: $total"
 
     # Contatore condiviso thread-safe per la progress bar
     $progressCounter = [int[]]@(0)
@@ -114,10 +116,9 @@ if ($UseSMB) {
                 $DryRun   = $using:DryRun_j
                 $counter  = $using:counter_j
 
-                function QLog($msg) {
-                    $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                    ($using:LogQueue).Enqueue("$time - $msg")
-                }
+                # FIX: rimossa funzione QLog (causa crash: $using: non supportato
+                # dentro funzioni definite nel blocco -Parallel).
+                # Il log viene ora scritto inline direttamente sulla ConcurrentQueue.
 
                 $fileName = Split-Path $_.href -Leaf
                 $url      = "$HTTPBase/$fileName"
@@ -152,10 +153,11 @@ if ($UseSMB) {
                     } catch {
                         $statusCode = $null
                         try { $statusCode = $_.Exception.Response.StatusCode.value__ } catch {}
+                        $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                         if ($statusCode -eq 304) {
-                            QLog "Non modificato (304): $fileName"
+                            $LogQueue.Enqueue("$time - Non modificato (304): $fileName")
                         } else {
-                            QLog "Errore download ($statusCode): $fileName - $($_.Exception.Message)"
+                            $LogQueue.Enqueue("$time - Errore download ($statusCode): $fileName - $($_.Exception.Message)")
                         }
                     }
                 }
